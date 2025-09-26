@@ -1,25 +1,48 @@
 from flask import Flask, request, jsonify
-import joblib
+import pickle
 import numpy as np
-
-# Load trained model
-model = joblib.load("xgb_model.pkl")
 
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return "✅ ML API is running!"
+# --- STEP 2: Load the Model Once ---
+try:
+    with open('xgb_model.pkl', 'rb') as f:
+        GLOBAL_MODEL = pickle.load(f)
+except Exception as e:
+    print(f"Error loading model: {e}")
+    GLOBAL_MODEL = None
 
-@app.route('/predict', methods=['POST'])
-def predict():
+
+# --- STEP 1: Define the Route ---
+@app.route("/predict", methods=["POST"])
+def predict_demand():
+    if GLOBAL_MODEL is None:
+        return jsonify({"error": "Model failed to load"}), 500
+    
     try:
-        data = request.json
-        features = np.array(data["features"]).reshape(1, -1)
-        prediction = model.predict(features)
-        return jsonify({"prediction": prediction.tolist()})
-    except Exception as e:
-        return jsonify({"error": str(e)})
+        # --- STEP 3: Get Input Data ---
+        data = request.get_json()
+        input_data = data.get('features') # Expecting a list like [2025, 10, 150, 180, ...]
+        
+        if not input_data:
+             return jsonify({"error": "Missing 'features' in request body"}), 400
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+        # --- STEP 4: Prepare Data ---
+        features_array = np.array(input_data).reshape(1, -1) 
+
+        # --- STEP 5: Run the Prediction ---
+        raw_prediction = GLOBAL_MODEL.predict(features_array)
+        predicted_demand = int(round(raw_prediction[0]))
+        
+        # --- STEP 6: Return JSON Response ---
+        return jsonify({
+            "status": "success",
+            "predicted_demand": predicted_demand
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": f"An error occurred during prediction: {str(e)}"}), 500
+
+if __name__ == '__main__':
+    # Render will use the Gunicorn/production server, but this is for local testing
+    app.run(debug=True)
